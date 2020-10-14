@@ -184,7 +184,7 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
             [prevViewController loadViewIfNeeded];
             prevViewController.view.hidden = YES;
             [keyWindow addSubview:prevViewController.view];
-            ASYNC_MAIN_QUEUE_EXE(^{
+            dispatch_async(dispatch_get_main_queue(), ^{
                 if (prevViewController.view.superview == keyWindow) {
                     [prevViewController.view removeFromSuperview];
                 }
@@ -199,7 +199,7 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
             [nextViewController loadViewIfNeeded];
             nextViewController.view.hidden = YES;
             [keyWindow addSubview:nextViewController.view];
-            ASYNC_MAIN_QUEUE_EXE(^{
+            dispatch_async(dispatch_get_main_queue(), ^{
                 if (nextViewController.view.superview == keyWindow) {
                     [nextViewController.view removeFromSuperview];
                 }
