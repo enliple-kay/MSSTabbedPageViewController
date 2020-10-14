@@ -74,12 +74,14 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
 }
 
 - (void)baseInit {
+    _currentPage = -1;
     _provideOutOfBoundsUpdates = YES;
     _showPageIndicator = NO;
     _allowScrollViewUpdates = YES;
     _scrollUpdatesEnabled = YES;
     _infiniteScrollEnabled = NO;
     _currentPage = MSSPageViewControllerPageNumberInvalid;
+    _bounce = YES;
 }
 
 #pragma mark - Lifecycle
@@ -102,6 +104,9 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
     
     [self.pageViewController mss_addToParentViewController:self atZIndex:0];
     self.scrollView.delegate = self;
+    if (self.navigationController) {
+        [self.scrollView.panGestureRecognizer requireGestureRecognizerToFail:self.navigationController.interactivePopGestureRecognizer];
+    }
     
     [self setUpPages];
 }
@@ -163,6 +168,43 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
     } else {
         if (completion) {
             completion(nil, NO, NO);
+        }
+    }
+}
+
+- (void)preloadViewControllersWithCurrentIndex:(NSUInteger)currentIndex {
+    UIWindow *keyWindow = [UIApplication sharedApplication].keyWindow;
+    NSInteger lastIndex = self.numberOfPages - 1;
+    NSInteger prevIndex = (currentIndex > 0 ? currentIndex - 1 : lastIndex);
+    NSInteger nextIndex = (currentIndex == lastIndex ? 0 : currentIndex + 1);
+    
+    UIViewController *prevViewController = [self viewControllerAtIndex:prevIndex];
+    if (prevViewController) {
+        if (!prevViewController.viewLoaded) {
+            [prevViewController loadViewIfNeeded];
+            prevViewController.view.hidden = YES;
+            [keyWindow addSubview:prevViewController.view];
+            ASYNC_MAIN_QUEUE_EXE(^{
+                if (prevViewController.view.superview == keyWindow) {
+                    [prevViewController.view removeFromSuperview];
+                }
+                prevViewController.view.hidden = NO;
+            });
+        }
+        
+    }
+    UIViewController *nextViewController = [self viewControllerAtIndex:nextIndex];
+    if (nextViewController) {
+        if (!nextViewController.viewLoaded) {
+            [nextViewController loadViewIfNeeded];
+            nextViewController.view.hidden = YES;
+            [keyWindow addSubview:nextViewController.view];
+            ASYNC_MAIN_QUEUE_EXE(^{
+                if (nextViewController.view.superview == keyWindow) {
+                    [nextViewController.view removeFromSuperview];
+                }
+                nextViewController.view.hidden = NO;
+            });
         }
     }
 }
@@ -235,14 +277,14 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
         }
         
         // display initial page
-        UIViewController *viewController = [self viewControllerAtIndex:self.currentPage];
-        if ([self.delegate respondsToSelector:@selector(pageViewController:willDisplayInitialViewController:)]) {
-            [self.delegate pageViewController:self willDisplayInitialViewController:viewController];
-        }
-        [self.pageViewController setViewControllers:@[viewController]
-                                          direction:UIPageViewControllerNavigationDirectionForward
-                                           animated:NO
-                                         completion:nil];
+//        UIViewController *viewController = [self viewControllerAtIndex:self.currentPage];
+//        if ([self.delegate respondsToSelector:@selector(pageViewController:willDisplayInitialViewController:)]) {
+//            [self.delegate pageViewController:self willDisplayInitialViewController:viewController];
+//        }
+//        [self.pageViewController setViewControllers:@[viewController]
+//                                          direction:UIPageViewControllerNavigationDirectionForward
+//                                           animated:NO
+//                                         completion:nil];
         self.scrollView.userInteractionEnabled = YES;
         
     } else {
@@ -305,26 +347,30 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
             currentPage = self.numberOfPages - 1;
         }
     }
-    
+    [self preloadViewControllersWithCurrentIndex:currentPage];
     // has reached page
     _animatingPageUpdate = NO;
     self.view.userInteractionEnabled = YES;
     
     if (currentPage >= 0 && currentPage < self.numberOfPages) {
+        NSInteger oldPage = _currentPage;
         _currentPage = currentPage;
-        if ([self.delegate respondsToSelector:@selector(pageViewController:didScrollToPage:)]) {
-            [self.delegate pageViewController:self didScrollToPage:self.currentPage];
+        if ([self.delegate respondsToSelector:@selector(pageViewController:didScrollToPage:oldPage:)]) {
+            [self.delegate pageViewController:self didScrollToPage:self.currentPage oldPage:oldPage];
         }
     }
 }
 
 #pragma mark - Scroll View delegate
 
-- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
-    _animatingPageUpdate = NO;
-}
-
 - (void)scrollViewDidScroll:(UIScrollView *)scrollView {
+    if(!_bounce){
+        if (_currentPage == 0 && scrollView.contentOffset.x < scrollView.bounds.size.width) {
+            scrollView.contentOffset = CGPointMake(scrollView.bounds.size.width, 0);
+        } else if (_currentPage == _numberOfPages-1 && scrollView.contentOffset.x > scrollView.bounds.size.width) {
+            scrollView.contentOffset = CGPointMake(scrollView.bounds.size.width, 0);
+        }
+    }
     
     CGFloat pageWidth = scrollView.frame.size.width;
     CGFloat scrollOffset = (scrollView.contentOffset.x - pageWidth);
@@ -337,6 +383,7 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
     
     // check if reached a page as page view controller delegate does not report reliably
     // occurs when scrollview is continuously dragged
+    /*
     if (!self.isAnimatingPageUpdate && scrollView.isDragging) {
         if (direction == MSSPageViewControllerScrollDirectionForward && currentPagePosition >= self.currentPage + 1) {
             [self updateCurrentPage:self.currentPage + 1];
@@ -346,9 +393,10 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
             return;
         }
     }
+    */
     
     if (currentPagePosition != self.previousPagePosition) {
-
+        
         CGFloat minPagePosition = 0.0f;
         CGFloat maxPagePosition = (self.viewControllers.count - 1);
         
@@ -394,6 +442,96 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
     }
 }
 
+- (void)scrollViewWillEndDragging:(UIScrollView *)scrollView withVelocity:(CGPoint)velocity targetContentOffset:(inout CGPoint *)targetContentOffset {
+    if(!_bounce){
+        if (_currentPage == 0 && scrollView.contentOffset.x <= scrollView.bounds.size.width) {
+            *targetContentOffset = CGPointMake(scrollView.bounds.size.width, 0);
+        } else if (_currentPage == _numberOfPages-1 && scrollView.contentOffset.x >= scrollView.bounds.size.width) {
+            *targetContentOffset = CGPointMake(scrollView.bounds.size.width, 0);
+        }
+    }
+}
+
+
+- (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView {
+    _animatingPageUpdate = NO;
+}
+
+- (void)updateCurrentPageWithScrollView:(UIScrollView *)scrollView {
+    CGFloat pageWidth = scrollView.frame.size.width;
+    CGFloat scrollOffset = (scrollView.contentOffset.x - pageWidth);
+    
+    CGFloat currentXOffset = (self.currentPage * pageWidth) + scrollOffset;
+    CGFloat currentPagePosition = currentXOffset / pageWidth;
+    MSSPageViewControllerScrollDirection direction =
+    currentPagePosition > _previousPagePosition ?
+    MSSPageViewControllerScrollDirectionForward : MSSPageViewControllerScrollDirectionBackward;
+    
+    // check if reached a page as page view controller delegate does not report reliably
+    // occurs when scrollview is continuously dragged
+    if (!self.isAnimatingPageUpdate && scrollView.isDragging) {
+        if (direction == MSSPageViewControllerScrollDirectionForward && currentPagePosition >= self.currentPage + 1) {
+            [self updateCurrentPage:self.currentPage + 1];
+            return; // ignore update if we've changed page
+        } else if (direction == MSSPageViewControllerScrollDirectionBackward && currentPagePosition <= self.currentPage - 1) {
+            [self updateCurrentPage:self.currentPage - 1];
+            return;
+        }
+    }
+    
+    if (currentPagePosition != self.previousPagePosition) {
+        
+        CGFloat minPagePosition = 0.0f;
+        CGFloat maxPagePosition = (self.viewControllers.count - 1);
+        
+        // limit updates if out of bounds updates are disabled
+        // updates will be limited to min of 0 and max of number of pages
+        BOOL outOfBounds = currentPagePosition < minPagePosition || currentPagePosition > maxPagePosition;
+        if (outOfBounds) {
+            if (self.infiniteScrollEnabled) {
+                
+                double integral;
+                CGFloat progress = modf(fabs(currentPagePosition), &integral); // calculate transition progress
+                CGFloat infiniteMaxPosition;
+                if (currentPagePosition > 0) { // upper boundary - going to first page
+                    progress = 1.0f - progress;
+                    infiniteMaxPosition = minPagePosition;
+                } else { // lower boundary - going to max page
+                    infiniteMaxPosition = maxPagePosition;
+                }
+                
+                // calculate relative position on overall transition
+                CGFloat infinitePagePosition = (maxPagePosition - minPagePosition) * progress;
+                if ((fmod(progress, 1.0) == 0.0)) {
+                    infinitePagePosition = infiniteMaxPosition;
+                }
+                
+                currentPagePosition = infinitePagePosition;
+                
+            } else if (!self.provideOutOfBoundsUpdates) {
+                currentPagePosition = MAX(0.0f, MIN(currentPagePosition, self.numberOfPages - 1));
+            }
+        }
+        
+        // check whether updates are allowed
+        if (self.scrollUpdatesEnabled && self.allowScrollViewUpdates) {
+            if ([self.delegate respondsToSelector:@selector(pageViewController:didScrollToPageOffset:direction:)]) {
+                [self.delegate pageViewController:self
+                            didScrollToPageOffset:currentPagePosition
+                                        direction:direction];
+            }
+        }
+        
+        _previousPagePosition = currentPagePosition;
+    }
+}
+
+- (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate {
+    if (decelerate) {
+        [self updateCurrentPageWithScrollView:scrollView];
+    }
+}
+
 #pragma mark - Page View Controller data source
 
 - (UIViewController *)pageViewController:(MSSPageViewController *)pageViewController
@@ -408,7 +546,11 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
             nextIndex = 0;
         }
         if (nextIndex != currentIndex) {
-            return [self viewControllerAtIndex:nextIndex];
+            if( _dataSource && [_dataSource respondsToSelector:@selector(beforeViewController:nextIndex:)] ) {
+                return [_dataSource beforeViewController:currentIndex nextIndex:nextIndex];
+            }else {
+                return [self viewControllerAtIndex:nextIndex];
+            }
         }
     }
     return nil;
@@ -426,7 +568,11 @@ NSInteger const MSSPageViewControllerPageNumberInvalid = -1;
             nextIndex = (self.viewControllers.count - 1);
         }
         if (nextIndex != currentIndex) {
-            return [self viewControllerAtIndex:nextIndex];
+            if( _dataSource && [_dataSource respondsToSelector:@selector(beforeViewController:nextIndex:)] ) {
+                return [_dataSource beforeViewController:currentIndex nextIndex:nextIndex];
+            }else {
+                return [self viewControllerAtIndex:nextIndex];
+            }
         }
     }
     return nil;

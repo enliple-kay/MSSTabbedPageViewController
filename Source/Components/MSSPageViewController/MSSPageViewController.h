@@ -22,7 +22,7 @@ typedef NS_ENUM(NSInteger, MSSPageViewControllerInfinitePagingBehavior) {
     /**
      The infinite page behavior will be standard.
      
-     I.e. Going from last index to index 0 will have a forward transition, 
+     I.e. Going from last index to index 0 will have a forward transition,
      index 0 to last index will have a reverse transition.
      */
     MSSPageViewControllerInfinitePagingBehaviorStandard,
@@ -47,7 +47,7 @@ typedef void(^MSSPageViewControllerPageMoveCompletion)(UIViewController *_Nullab
  
  @param pageViewController
         The page view controller.
- @param pageOffset 
+ @param pageOffset
         The updated page offset.
  */
 - (void)pageViewController:(nonnull MSSPageViewController *)pageViewController
@@ -73,9 +73,12 @@ typedef void(^MSSPageViewControllerPageMoveCompletion)(UIViewController *_Nullab
  The page view controller.
  @param page
  The new currently visible page.
+ @param oldPage
+ The old page.
  */
 - (void)pageViewController:(nonnull MSSPageViewController *)pageViewController
-           didScrollToPage:(NSInteger)page;
+           didScrollToPage:(NSInteger)page
+                   oldPage:(NSInteger)oldPage;
 
 /**
  The page view controller has successfully prepared child view controllers ready for display.
@@ -112,6 +115,7 @@ willDisplayInitialViewController:(nonnull UIViewController *)viewController;
 - (nullable NSArray<UIViewController *> *)viewControllersForPageViewController:(nonnull MSSPageViewController *)pageViewController;
 
 @optional
+- (nullable UIViewController *)beforeViewController:(NSInteger)currentIndex nextIndex:(NSInteger)nextIndex;
 
 /**
  The default page index for the page view controller to initially display.
@@ -143,12 +147,12 @@ willDisplayInitialViewController:(nonnull UIViewController *)viewController;
  The current active page index of the page view controller.
  */
 @property (nonatomic, assign, readonly) NSInteger currentPage;
-/** 
+/**
  The view controllers within the page view controller.
  */
 @property (nonatomic, strong, readonly, nullable) NSArray<UIViewController *> *viewControllers;
 
-/** 
+/**
  Whether page view controller will display the page indicator view.
  */
 @property (nonatomic, assign) BOOL showPageIndicator;
@@ -186,6 +190,8 @@ willDisplayInitialViewController:(nonnull UIViewController *)viewController;
  when using moveToPageAtIndex functions. MSSPageViewControllerInfinitePagingBehaviorStandard by default.
  */
 @property (nonatomic, assign) MSSPageViewControllerInfinitePagingBehavior infiniteScrollPagingBehaviour;
+
+@property (nonatomic, assign) BOOL bounce;
 
 /**
  Move page view controller to a page at specific index.
